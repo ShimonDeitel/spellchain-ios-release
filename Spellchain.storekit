@@ -1,0 +1,40 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "SPELLCHAIN_STOREKIT_CONFIG",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : true,
+      "internalID" : "spellchain_pro_unlock_id",
+      "localizations" : [
+        {
+          "description" : "Unlock unlimited practice puzzles, the full archive of past dailies, alternate letter packs, and the post-round \"words you missed\" breakdown. One-time purchase.",
+          "displayName" : "Spellchain Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "spellchain_pro_unlock",
+      "referenceName" : "Spellchain Pro Unlock",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
