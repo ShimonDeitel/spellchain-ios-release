@@ -32,15 +32,11 @@ final class AppModel: ObservableObject {
         refresh()
     }
 
-    // MARK: Container (offline-first; CloudKit private-DB mirroring when an iCloud account exists)
+    // MARK: Container (fully local; on-device SwiftData persistence, no cloud)
 
     static func makeContainer() -> ModelContainer {
         let schema = Schema([DailyResult.self])
-        if FileManager.default.ubiquityIdentityToken != nil {
-            let cloud = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
-            if let c = try? ModelContainer(for: schema, configurations: cloud) { return c }
-        }
-        let local = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
+        let local = ModelConfiguration(schema: schema)
         if let c = try? ModelContainer(for: schema, configurations: local) { return c }
         let mem = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try! ModelContainer(for: schema, configurations: mem)
@@ -113,9 +109,8 @@ final class AppModel: ObservableObject {
     // MARK: Stats / streak
 
     func refresh() {
-        // CloudKit forbids unique constraints, so two devices that finish the same day offline can
-        // each insert a DailyResult with the same dateKey; when they sync, both survive. Reconcile
-        // before deriving stats so duplicates never inflate totalRounds / totalWords / Archive.
+        // Defensively collapse any same-dateKey duplicates before deriving stats so they never
+        // inflate totalRounds / totalWords / Archive (e.g. from a legacy multi-device import).
         let all = reconcileDuplicates(allResults())
         totalRounds = all.count
         totalWords = all.reduce(0) { $0 + $1.wordCount }
@@ -129,7 +124,7 @@ final class AppModel: ObservableObject {
         longestStreak = Self.longestStreak(days: days, cal: cal)
     }
 
-    /// Collapse CloudKit-merged duplicates: group by dateKey, keep the highest-score record per key
+    /// Collapse same-dateKey duplicates: group by dateKey, keep the highest-score record per key
     /// (matching the existing "higher score wins" rule; ties broken by earliest date), delete the
     /// rest, and persist. Returns the deduplicated, surviving results. Safe to run on every refresh.
     @discardableResult

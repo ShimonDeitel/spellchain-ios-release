@@ -1,15 +1,12 @@
 import SwiftUI
-import AuthenticationServices
 
 struct SettingsView: View {
     @EnvironmentObject var appModel: AppModel
     @EnvironmentObject var store: Store
-    @EnvironmentObject var account: AccountManager
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("spellchain.theme") private var themeRaw = AppTheme.system.rawValue
     @AppStorage("spellchain.haptics") private var hapticsEnabled = true
-    @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
     @State private var showDeleteConfirm = false
@@ -35,15 +32,14 @@ struct SettingsView: View {
             }
             .tint(Color.appAccent)
             .sheet(isPresented: $showPaywall) { PaywallView() }
-            .alert("Delete Account?", isPresented: $showDeleteConfirm) {
-                Button("Delete", role: .destructive) {
+            .alert("Erase All Results?", isPresented: $showDeleteConfirm) {
+                Button("Erase", role: .destructive) {
                     appModel.deleteAllData()
-                    account.deleteAccount()
                     dismiss()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes your account and erases your results on this device and from iCloud. This can't be undone.")
+                Text("This permanently erases your results and stats on this device. This can't be undone.")
             }
         }
     }
@@ -102,37 +98,14 @@ struct SettingsView: View {
     @ViewBuilder
     private var aboutSection: some View {
         Section {
-            if account.isSignedIn {
-                HStack {
-                    Text("Signed in")
-                    Spacer()
-                    Text(account.displayName.isEmpty ? "Apple ID" : account.displayName)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Sign Out", role: .destructive) { account.signOut() }
-                Button("Delete Account", role: .destructive) { showDeleteConfirm = true }
-            } else {
-                // Optional opt-in: signing in is never required to play — it only enables
-                // cross-device sync of your results.
-                SignInWithAppleButton(.continue) { request in
-                    account.configure(request)
-                } onCompletion: { result in
-                    account.handle(result)
-                }
-                .signInWithAppleButtonStyle(scheme == .dark ? .white : .black)
-                .frame(height: 44)
-                .clipShape(Capsule())
-                .accessibilityIdentifier("settings-siwa-button")
-            }
+            Button("Erase All Results", role: .destructive) { showDeleteConfirm = true }
             Link("Privacy Policy", destination: URL(string: "https://shimondeitel.github.io/spellchain-site/privacy.html")!)
         } header: {
-            Text("Account")
+            Text("About")
         } footer: {
             VStack(spacing: 6) {
-                if !account.isSignedIn {
-                    Text("Optional. Sign in with Apple to sync your results across your devices. You don't need an account to play.")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text("Your results are stored only on this device. No account is required to play.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text(version).frame(maxWidth: .infinity, alignment: .center).padding(.top, 4)
             }
         }

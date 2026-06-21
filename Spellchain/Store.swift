@@ -52,22 +52,13 @@ final class Store: ObservableObject {
 
     func refreshEntitlements() async {
         var entitled = false
-        var txID: String?
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             if transaction.productID == Store.productID, transaction.revocationDate == nil {
                 entitled = true
-                txID = String(transaction.id)
             }
         }
-        let wasPro = isPro
         isPro = entitled || debugForcePro
-        // Best-effort owner-visibility record on either edge (grant or refund/revocation).
-        if entitled, !wasPro {
-            CloudSync.recordPaidStatus(isPro: true, transactionID: txID)
-        } else if !entitled, wasPro {
-            CloudSync.recordPaidStatus(isPro: false, transactionID: nil)
-        }
     }
 
     /// Returns true only when a verified purchase has been granted.
@@ -82,8 +73,6 @@ final class Store: ObservableObject {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else { return false }
                 await transaction.finish()
-                // refreshEntitlements() writes the owner-visibility record once it confirms the
-                // verified entitlement — no need to record here (avoids a pre-confirmation write).
                 await refreshEntitlements()
                 return isPro
             case .userCancelled, .pending:

@@ -36,9 +36,5 @@
 	<false/>
 	<key>UIUserInterfaceStyle</key>
 	<string>Automatic</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 </dict>
 </plist>

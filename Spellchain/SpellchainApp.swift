@@ -5,7 +5,6 @@ import SwiftData
 struct SpellchainApp: App {
     @StateObject private var store: Store
     @StateObject private var appModel: AppModel
-    @StateObject private var account = AccountManager()
     private let container: ModelContainer
 
     init() {
@@ -23,7 +22,6 @@ struct SpellchainApp: App {
             RootView()
                 .environmentObject(store)
                 .environmentObject(appModel)
-                .environmentObject(account)
                 .modelContainer(container)
         }
     }

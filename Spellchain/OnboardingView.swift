@@ -1,17 +1,13 @@
 import SwiftUI
-import AuthenticationServices
 
 /// First launch. The letter-fan motif sits above a single primary "Start playing" button so the
-/// player reaches the game with zero typing and zero account. Sign in with Apple is offered here
-/// only as an OPTIONAL opt-in for cross-device sync — it is never required to play (App Review
-/// 5.1.1(v)). The same opt-in lives in Settings.
+/// player reaches the game with zero typing and zero account. The app is fully local — no sign-in
+/// and no account are ever required to play.
 struct OnboardingView: View {
-    /// Called when the player dismisses onboarding (with or without signing in) to enter Home.
+    /// Called when the player dismisses onboarding to enter Home.
     var onContinue: () -> Void
 
-    @EnvironmentObject var account: AccountManager
     @EnvironmentObject var appModel: AppModel
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
@@ -44,22 +40,6 @@ struct OnboardingView: View {
                     }
                     .prominentButton()
                     .accessibilityIdentifier("onboarding-start")
-
-                    SignInWithAppleButton(.continue) { request in
-                        account.configure(request)
-                    } onCompletion: { result in
-                        account.handle(result)
-                        if account.isSignedIn { onContinue() }
-                    }
-                    .signInWithAppleButtonStyle(scheme == .dark ? .white : .black)
-                    .frame(height: 50)
-                    .clipShape(Capsule())
-                    .accessibilityIdentifier("siwa-button")
-
-                    Text("Optional — sign in to sync across your devices. You can also do this later in Settings.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
 
                     Text("No subscription. No ads. A new puzzle every day.")
                         .font(.footnote)
