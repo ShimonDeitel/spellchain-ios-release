@@ -1,4 +1,4 @@
-name: Build & Upload (auto-sign)
+name: Build & Upload to App Store
 on:
   push:
     branches: [ master ]
@@ -29,15 +29,17 @@ jobs:
           ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
-          mkdir -p ~/.appstoreconnect/private_keys ~/.private_keys
+          mkdir -p ~/.appstoreconnect/private_keys
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          cp ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8 ~/.private_keys/
           echo "KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
 
-      - name: Import distribution certificate
+      - name: Set up signing (cert + App Store profiles)
         env:
           DIST_P12_BASE64: ${{ secrets.DIST_P12_BASE64 }}
           DIST_P12_PASSWORD: ${{ secrets.DIST_P12_PASSWORD }}
+          PROFILE_1_B64: ${{ secrets.PROFILE_1_B64 }}
+          PROFILE_2_B64: ${{ secrets.PROFILE_2_B64 }}
+          PROFILE_3_B64: ${{ secrets.PROFILE_3_B64 }}
         run: |
           KCHAIN="$RUNNER_TEMP/build.keychain-db"
           KPASS="ci-$RANDOM"
@@ -49,8 +51,19 @@ jobs:
           security import "$RUNNER_TEMP/dist.p12" -k "$KCHAIN" -P "$DIST_P12_PASSWORD" -A -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPASS" "$KCHAIN" >/dev/null
           security find-identity -v -p codesigning "$KCHAIN"
+          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          MINE="$RUNNER_TEMP/myprofiles"
+          mkdir -p "$PROF_DIR" "$MINE"
+          i=0
+          for b in "$PROFILE_1_B64" "$PROFILE_2_B64" "$PROFILE_3_B64"; do
+            i=$((i+1))
+            [ -z "$b" ] && continue
+            echo "$b" | base64 --decode > "$MINE/p$i.mobileprovision"
+            cp "$MINE/p$i.mobileprovision" "$PROF_DIR/p$i.mobileprovision"
+          done
+          ls -la "$MINE"
 
-      - name: Archive (automatic signing, auto-provision)
+      - name: Archive
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -66,21 +79,28 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM=W7Q885Q59C \
-            CODE_SIGN_STYLE=Automatic \
             archive
 
-      - name: Export IPA (automatic signing)
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      - name: Export IPA (manual signing, auto profile map)
         run: |
+          MAP=""
+          for f in "$RUNNER_TEMP/myprofiles"/*.mobileprovision; do
+            security cms -D -i "$f" > /tmp/pp.plist 2>/dev/null
+            NAME=$(plutil -extract Name raw /tmp/pp.plist)
+            APPID=$(plutil -extract Entitlements.application-identifier raw /tmp/pp.plist)
+            BID=${APPID#*.}
+            MAP="$MAP<key>$BID</key><string>$NAME</string>"
+          done
+          echo "profile map: $MAP"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>W7Q885Q59C</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>$MAP</dict>
             <key>destination</key><string>export</string>
             <key>uploadSymbols</key><true/>
           </dict></plist>
@@ -88,11 +108,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Spellchain.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
           ls -la "$RUNNER_TEMP/export"
 
       - name: Upload to App Store Connect
