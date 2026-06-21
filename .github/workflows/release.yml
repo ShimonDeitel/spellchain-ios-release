@@ -1,4 +1,4 @@
-name: Build & Upload to App Store
+name: Build & Upload (strict manual)
 on:
   push:
     branches: [ master ]
@@ -7,92 +7,49 @@ on:
 jobs:
   archive-upload:
     runs-on: macos-15
-    timeout-minutes: 70
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
       - name: Select newest Xcode
         run: |
           LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          echo "Selecting: $LATEST"
-          sudo xcode-select -s "$LATEST/Contents/Developer"
-          xcodebuild -version
-
-      - name: Generate project (xcodegen)
-        run: |
-          brew install xcodegen
-          xcodegen generate
-          xcodebuild -list -project Spellchain.xcodeproj | head -40
-
-      - name: Write App Store Connect API key
+          sudo xcode-select -s "$LATEST/Contents/Developer"; xcodebuild -version
+      - name: Generate project
+        run: brew install xcodegen && xcodegen generate
+      - name: Write ASC API key
         env:
           ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          echo "KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
-
-      - name: Set up signing (cert + App Store profiles)
+      - name: Import cert + profile
         env:
           DIST_P12_BASE64: ${{ secrets.DIST_P12_BASE64 }}
           DIST_P12_PASSWORD: ${{ secrets.DIST_P12_PASSWORD }}
           PROFILE_1_B64: ${{ secrets.PROFILE_1_B64 }}
-          PROFILE_2_B64: ${{ secrets.PROFILE_2_B64 }}
-          PROFILE_3_B64: ${{ secrets.PROFILE_3_B64 }}
         run: |
-          KCHAIN="$RUNNER_TEMP/build.keychain-db"
-          KPASS="ci-$RANDOM"
+          KCHAIN="$RUNNER_TEMP/b.keychain-db"; KPASS="ci-$RANDOM"
           security create-keychain -p "$KPASS" "$KCHAIN"
           security set-keychain-settings -lut 3600 "$KCHAIN"
           security unlock-keychain -p "$KPASS" "$KCHAIN"
           security list-keychains -d user -s "$KCHAIN" $(security list-keychains -d user | tr -d '"')
-          echo "$DIST_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
-          security import "$RUNNER_TEMP/dist.p12" -k "$KCHAIN" -P "$DIST_P12_PASSWORD" -A -T /usr/bin/codesign -T /usr/bin/security
+          echo "$DIST_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/d.p12"
+          security import "$RUNNER_TEMP/d.p12" -k "$KCHAIN" -P "$DIST_P12_PASSWORD" -A -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPASS" "$KCHAIN" >/dev/null
           security find-identity -v -p codesigning "$KCHAIN"
-          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          MINE="$RUNNER_TEMP/myprofiles"
-          mkdir -p "$PROF_DIR" "$MINE"
-          i=0
-          for b in "$PROFILE_1_B64" "$PROFILE_2_B64" "$PROFILE_3_B64"; do
-            i=$((i+1))
-            [ -z "$b" ] && continue
-            echo "$b" | base64 --decode > "$MINE/p$i.mobileprovision"
-            cp "$MINE/p$i.mobileprovision" "$PROF_DIR/p$i.mobileprovision"
-          done
-          ls -la "$MINE"
-
-      - name: Archive
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          PD="$HOME/Library/MobileDevice/Provisioning Profiles"; mkdir -p "$PD"
+          echo "$PROFILE_1_B64" | base64 --decode > "$PD/p1.mobileprovision"
+      - name: Archive (strict manual, no auto-provision)
         run: |
-          xcodebuild \
-            -project Spellchain.xcodeproj \
-            -scheme Spellchain \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/Spellchain.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM=W7Q885Q59C \
+          xcodebuild -project Spellchain.xcodeproj -scheme Spellchain -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Spellchain.xcarchive" \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=W7Q885Q59C \
+            PROVISIONING_PROFILE_SPECIFIER="Spellchain AppStore P" CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
-
-      - name: Export IPA (manual signing, auto profile map)
+      - name: Export IPA
         run: |
-          MAP=""
-          for f in "$RUNNER_TEMP/myprofiles"/*.mobileprovision; do
-            security cms -D -i "$f" > /tmp/pp.plist 2>/dev/null
-            NAME=$(plutil -extract Name raw /tmp/pp.plist)
-            APPID=$(plutil -extract Entitlements.application-identifier raw /tmp/pp.plist)
-            BID=${APPID#*.}
-            MAP="$MAP<key>$BID</key><string>$NAME</string>"
-          done
-          echo "profile map: $MAP"
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          cat > "$RUNNER_TEMP/EO.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
@@ -100,23 +57,17 @@ jobs:
             <key>teamID</key><string>W7Q885Q59C</string>
             <key>signingStyle</key><string>manual</string>
             <key>signingCertificate</key><string>Apple Distribution</string>
-            <key>provisioningProfiles</key><dict>$MAP</dict>
+            <key>provisioningProfiles</key><dict><key>com.shimondeitel.spellchain</key><string>Spellchain AppStore P</string></dict>
             <key>destination</key><string>export</string>
-            <key>uploadSymbols</key><true/>
           </dict></plist>
           EOF
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/Spellchain.xcarchive" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Spellchain.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" -exportOptionsPlist "$RUNNER_TEMP/EO.plist"
           ls -la "$RUNNER_TEMP/export"
-
-      - name: Upload to App Store Connect
+      - name: Upload
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -1)
-          echo "Uploading $IPA"
-          xcrun altool --upload-app --type ios --file "$IPA" \
-            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
