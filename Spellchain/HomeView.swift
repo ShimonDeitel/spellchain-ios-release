@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var showPaywall = false
     @State private var showArchive = false
+    @State private var showPacks = false
 
     private var playedToday: Bool { appModel.hasPlayedToday() }
 
@@ -47,6 +48,7 @@ struct HomeView: View {
             .sheet(isPresented: $showSettings) { SettingsView() }
             .sheet(isPresented: $showPaywall) { PaywallView() }
             .sheet(isPresented: $showArchive) { ArchiveView() }
+            .sheet(isPresented: $showPacks) { PackPickerView(onPick: launchPack) }
             .onAppear { appModel.refreshTodayIfNeeded() }
         }
     }
@@ -135,6 +137,29 @@ struct HomeView: View {
                         locked: !store.isPro)
             }
             .buttonStyle(.plain)
+
+            Button {
+                Haptics.tap()
+                if store.isPro { showPacks = true } else { showPaywall = true }
+            } label: {
+                proTile(icon: "square.grid.2x2", title: "Letter packs",
+                        subtitle: store.isPro ? "Alternate letter distributions" : "Pro",
+                        locked: !store.isPro)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("packs-button")
+        }
+    }
+
+    /// Launch a round from a chosen alternate pack. Dismiss the picker first, then present the
+    /// round so the sheet and the full-screen cover don't fight over presentation.
+    private func launchPack(_ pack: LetterPack) {
+        showPacks = false
+        let puzzle = appModel.packPuzzle(pack)
+        roundIsDaily = false
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            activeRound = puzzle
         }
     }
 
@@ -159,5 +184,57 @@ struct HomeView: View {
     private var todayHeadline: String {
         let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .none
         return f.string(from: .now)
+    }
+}
+
+/// Pro pack chooser — pick an alternate letter distribution to play a one-off round.
+private struct PackPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onPick: (LetterPack) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppBackground()
+                ScrollView {
+                    VStack(spacing: 14) {
+                        Text("Each pack draws letters from a different distribution for a fresh kind of round.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 2)
+                        ForEach(LetterPack.all) { pack in
+                            Button { Haptics.tap(); onPick(pack) } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: pack.symbol)
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(Color.appAccent)
+                                        .frame(width: 30)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(pack.name).font(.headline).foregroundStyle(.primary)
+                                        Text(pack.blurb).font(.caption).foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .appCard()
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Letter Packs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }.tint(Color.appAccent)
+                }
+            }
+        }
     }
 }
