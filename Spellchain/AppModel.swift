@@ -60,6 +60,9 @@ final class AppModel: ObservableObject {
 
     func practicePuzzle() -> Puzzle { PuzzleGenerator.practicePuzzle() }
 
+    /// A fresh puzzle from an alternate letter pack (Pro). Each call differs.
+    func packPuzzle(_ pack: LetterPack) -> Puzzle { PuzzleGenerator.packPuzzle(pack) }
+
     /// All dictionary words buildable from a puzzle's letters (used for the Pro "missed words").
     func allSolutions(for puzzle: Puzzle) -> [String] {
         PuzzleGenerator.solutions(for: puzzle.letters).sorted { a, b in
